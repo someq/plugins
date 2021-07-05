@@ -16,6 +16,7 @@ export 'package:video_player_platform_interface/video_player_platform_interface.
 
 import 'src/closed_caption_file.dart';
 export 'src/closed_caption_file.dart';
+import 'src/hls_video_cache.dart';
 
 final VideoPlayerPlatform _videoPlayerPlatform = VideoPlayerPlatform.instance
   // This will clear all open videos on the platform when a full restart is
@@ -205,7 +206,22 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
         formatHint = null,
         super(VideoPlayerValue(duration: null));
 
+  /// Constructs a [VideoPlayerController] playing a video from a cached
+  /// m3u playlist.
+  ///
+  /// This will load the file from the file-URI given by:
+  /// `'file://${cache.path}'`
+  VideoPlayerController.cache(this.cache,
+      {this.closedCaptionFile, this.videoPlayerOptions})
+      : dataSource = 'file://${cache.path}',
+        dataSourceType = DataSourceType.file,
+        package = null,
+        formatHint = null,
+        super(VideoPlayerValue(duration: null));
+
   int _textureId;
+
+  HLSVideoCache cache;
 
   /// The URI to the video file. This will be in different formats depending on
   /// the [DataSourceType] of the original video.
@@ -304,7 +320,8 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
           _timer?.cancel();
           break;
         case VideoEventType.bufferingUpdate:
-          value = value.copyWith(buffered: event.buffered);
+          value = value.copyWith(buffered: event.buffered,
+              duration: cache?.duration ?? value.duration);
           break;
         case VideoEventType.bufferingStart:
           value = value.copyWith(isBuffering: true);
@@ -396,7 +413,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
       _timer?.cancel();
       _timer = Timer.periodic(
         const Duration(milliseconds: 500),
-        (Timer timer) async {
+            (Timer timer) async {
           if (_isDisposed) {
             return;
           }
@@ -672,10 +689,12 @@ class _VideoScrubber extends StatefulWidget {
   _VideoScrubber({
     @required this.child,
     @required this.controller,
+    this.hiddenDuration = Duration.zero,
   });
 
   final Widget child;
   final VideoPlayerController controller;
+  final Duration hiddenDuration;
 
   @override
   _VideoScrubberState createState() => _VideoScrubberState();
@@ -685,6 +704,7 @@ class _VideoScrubberState extends State<_VideoScrubber> {
   bool _controllerWasPlaying = false;
 
   VideoPlayerController get controller => widget.controller;
+  Duration get hiddenDuration => widget.hiddenDuration;
 
   @override
   Widget build(BuildContext context) {
@@ -692,7 +712,7 @@ class _VideoScrubberState extends State<_VideoScrubber> {
       final RenderBox box = context.findRenderObject();
       final Offset tapPos = box.globalToLocal(globalPosition);
       final double relative = tapPos.dx / box.size.width;
-      final Duration position = controller.value.duration * relative;
+      final Duration position = (controller.value.duration - hiddenDuration) * relative;
       controller.seekTo(position);
     }
 
@@ -748,6 +768,7 @@ class VideoProgressIndicator extends StatefulWidget {
     VideoProgressColors colors,
     this.allowScrubbing,
     this.padding = const EdgeInsets.only(top: 5.0),
+    this.hiddenDuration = Duration.zero,
   }) : colors = colors ?? VideoProgressColors();
 
   /// The [VideoPlayerController] that actually associates a video with this
@@ -771,6 +792,8 @@ class VideoProgressIndicator extends StatefulWidget {
   /// Defaults to `top: 5.0`.
   final EdgeInsets padding;
 
+  final Duration hiddenDuration;
+
   @override
   _VideoProgressIndicatorState createState() => _VideoProgressIndicatorState();
 }
@@ -791,6 +814,8 @@ class _VideoProgressIndicatorState extends State<VideoProgressIndicator> {
 
   VideoProgressColors get colors => widget.colors;
 
+  Duration get hiddenDuration => widget.hiddenDuration;
+
   @override
   void initState() {
     super.initState();
@@ -803,20 +828,39 @@ class _VideoProgressIndicatorState extends State<VideoProgressIndicator> {
     super.deactivate();
   }
 
+  int visibleDuration() {
+    int duration = controller.value.duration.inMilliseconds
+        - hiddenDuration.inMilliseconds;
+    if (duration < 1) return 1;
+    return duration;
+  }
+
+  int positionOf(int duration) {
+    int position = controller.value.position.inMilliseconds;
+    if (position > duration) return duration;
+    return position;
+  }
+
+  int maxBufferingOf(int duration) {
+    int maxBuffering = 0;
+    for (DurationRange range in controller.value.buffered) {
+      final int end = range.end.inMilliseconds;
+      if (end > maxBuffering) {
+        maxBuffering = end;
+      }
+    }
+    if (maxBuffering > duration) return duration;
+    return maxBuffering;
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget progressIndicator;
     if (controller.value.initialized) {
-      final int duration = controller.value.duration.inMilliseconds;
-      final int position = controller.value.position.inMilliseconds;
-
-      int maxBuffering = 0;
-      for (DurationRange range in controller.value.buffered) {
-        final int end = range.end.inMilliseconds;
-        if (end > maxBuffering) {
-          maxBuffering = end;
-        }
-      }
+      final duration = visibleDuration();
+      final position = positionOf(duration);
+      final maxBuffering = maxBufferingOf(duration);
+      if (position < duration) print("$position / $duration");
 
       progressIndicator = Stack(
         fit: StackFit.passthrough,
@@ -848,6 +892,7 @@ class _VideoProgressIndicatorState extends State<VideoProgressIndicator> {
       return _VideoScrubber(
         child: paddedProgressIndicator,
         controller: controller,
+        hiddenDuration: hiddenDuration,
       );
     } else {
       return paddedProgressIndicator;
