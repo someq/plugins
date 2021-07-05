@@ -1,4 +1,4 @@
-abstract class HLSVideoCache {
+abstract class HLSVideoCacheInterface {
   Duration get duration {
     throw UnimplementedError('Should return valid Duration duration');
   }

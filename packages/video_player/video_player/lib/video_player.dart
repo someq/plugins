@@ -16,7 +16,7 @@ export 'package:video_player_platform_interface/video_player_platform_interface.
 
 import 'src/closed_caption_file.dart';
 export 'src/closed_caption_file.dart';
-import 'src/hls_video_cache.dart';
+import 'hls_video_cache_interface.dart';
 
 final VideoPlayerPlatform _videoPlayerPlatform = VideoPlayerPlatform.instance
   // This will clear all open videos on the platform when a full restart is
@@ -221,7 +221,7 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
 
   int _textureId;
 
-  HLSVideoCache cache;
+  HLSVideoCacheInterface cache;
 
   /// The URI to the video file. This will be in different formats depending on
   /// the [DataSourceType] of the original video.
